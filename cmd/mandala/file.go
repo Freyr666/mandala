@@ -3,16 +3,13 @@ package main
 import (
 	"os"
 	"os/exec"
+	"fmt"
 	"log"
 	"time"
 	"bytes"
 	"strconv"
-)
-
-type unitType int
-const (
-        File = iota
-        Dir
+	"strings"
+	"path/filepath"
 )
 
 type status struct {
@@ -25,80 +22,101 @@ type status struct {
 
 type unit interface {
 	View(len int) []byte  
-	Open()        unit
-	Status()      status
-	Type()        unitType
+	Open()        *[]file
+	Status()      *status
+	IsDir()       bool
 }
 
-type file string
-type dir  []string
+type file struct {
+	Name string
+	Path string
+}
 
-func strToUnit(name *string) unit {
-	tmp, err := os.Open(*name)
-	defer tmp.Close()
+func (s *status)String() string {
+	return fmt.Sprintf("%s %d %s:%s %s", s.Mode, s.Size, s.Owner, s.Group, s.Date.String())
+}
+
+func strToFile(name string) file {
+	path, err := filepath.Abs(name)
 	if err != nil {log.Fatal(err)}
-
-	info, err := tmp.Stat()
-	if err != nil {log.Fatal(err)}
-
-	if info.IsDir() {
-		nms, err := tmp.Readdirnames(0)
-		if err != nil {log.Fatal(err)}
-		return (*dir)(&nms)
-	} else {
-		return (*file)(name)
-	}
+	
+	return file {
+		Name: name,
+		Path: path}
 }
 
 func (f *file) View(len int) []byte {
-	tmp, err := os.Open(string(*f))
-	defer tmp.Close()
-	if err != nil {log.Fatal(err)}
+	if f.IsDir() {
+		tmp, err := os.Open(f.Path)
+		defer tmp.Close()
+		if err != nil {log.Fatal(err)}
 
-	bin  := "cat"
+		names, err := tmp.Readdirnames(len)
+		if err != nil {log.Fatal(err)}
 
-	var b bytes.Buffer
+		return []byte(strings.Join(names, "\n"))
+	} else {
 
-	proc := exec.Command(bin, tmp.Name() )
-	filt := exec.Command("head", "-n", strconv.Itoa(len))
+		bin  := "cat"
+
+		var b bytes.Buffer
+
+		proc := exec.Command(bin, f.Path )
+		filt := exec.Command("head", "-n", strconv.Itoa(len))
 	
-	procOut, err := proc.StdoutPipe()
-	
-	filt.Stdin  = procOut
-	filt.Stdout = &b
+		procOut, err := proc.StdoutPipe()
+		
+		filt.Stdin  = procOut
+		filt.Stdout = &b
 
-	proc.Start()
-	if err != nil {log.Fatal(err)}
-	filt.Run()
-	if err != nil {log.Fatal(err)}
+		proc.Start()
+		if err != nil {log.Fatal(err)}
+		filt.Run()
+		if err != nil {log.Fatal(err)}
 	
-	return b.Bytes()
+		return b.Bytes()
+	}
 }
 
-func (f *file) Open() unit {
-	tmp, err := os.Open(string(*f))
-	defer tmp.Close()
-	if err != nil {log.Fatal(err)}
-	
-	bin  := "vi"
-	args := []string{tmp.Name()}
+func (f *file) Open() *[]file {
+	if f.IsDir() {
+		tmp, err := os.Open(f.Path)
+		defer tmp.Close()
+		if err != nil {log.Fatal(err)}
 
-	proc, err := os.StartProcess(bin, args, nil)
-	if err != nil {log.Fatal(err)}
-	_, err = proc.Wait()
-	if err != nil {log.Fatal(err)}
-	
-	return nil
+		names, err := tmp.Readdirnames(0)
+		if err != nil {log.Fatal(err)}
+
+		rval := make([]file, len(names))
+		
+		for i, name := range(names) {
+			rval[i] = strToFile(name)
+		}
+		return &rval
+	} else {
+		bin  := "vi"
+
+		proc := exec.Command(bin, f.Path)
+		proc.Stdin  = os.Stdin
+		proc.Stdout = os.Stdout
+		proc.Stderr = os.Stderr
+		err := proc.Start()
+		if err != nil {log.Fatal(err)}
+		err = proc.Wait()
+		if err != nil {
+			log.Printf("Error while editing. Error: %v\n", err)
+		} else {
+			log.Printf("Successfully edited.")
+		}
+		return nil
+	}
 }
 
-func (f *file) Status() status {
-	tmp, err := os.Open(string(*f))
-	defer tmp.Close()
+func (f *file) Status() *status {
+	info, err := os.Stat(f.Path)
 	if err != nil {log.Fatal(err)}
-	
-	info, err := tmp.Stat()	
-	if err != nil {log.Fatal(err)}
-	rval := status {
+
+	rval := &status {
 		info.Mode().String(),
 		info.Size(),
 		info.ModTime(),
@@ -107,30 +125,13 @@ func (f *file) Status() status {
 	return rval
 }
 
-func (f *file) Type() unitType {
-	return File
-}
-
-func (d *dir) View(len int) []byte {
+func (f *file) IsDir() bool {
+	info, err := os.Stat(f.Path)
+	if err != nil {log.Fatal(err)}
 	
-	return nil
+	return info.IsDir()
 }
 
-func (d *dir) Open() unit {
-	
-	return nil
-}
-
-func (d *dir) Status() status {
-	rval := status {
-		"d------",
-		123,
-		time.Now(),
-		"user",
-		"test"}
-	return rval
-}
-
-func (d *dir) Type() unitType {
-	return Dir
+func (f *file) String() string {
+	return f.Name
 }

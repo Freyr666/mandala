@@ -9,9 +9,15 @@ func main()  {
 	args := os.Args[1:]
 	
 	for _, f := range args {
-		fmt.Println("File: ", f)
-		u := strToUnit(&f)
+		u := strToFile(f)
 		v := u.View(15)
 		fmt.Print(string(v))
+		o := u.Open()
+		if o != nil {
+			fmt.Print(o)
+		}
+		//s := u.Status()
+		//fmt.Print(s)
+		fmt.Print("\n\n")
 	}
 }
