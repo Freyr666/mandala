@@ -1,0 +1,5 @@
+S src/**
+B _build/**
+B +threads
+PKG core lwt lambda-term
+EXT lwt
